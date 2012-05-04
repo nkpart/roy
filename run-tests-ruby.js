@@ -19,6 +19,7 @@ var doTest = function(test, command, rbFile, outFile) {
             } else {
               child_process.exec("ruby -Ilib -rprelude " + rbFile, function(error, stdout, stderr) {
                 if(error != undefined) {
+                  console.log(stdout.toString())
                 return console.log("Error:", name, error.message);
                 } else {
                 var expected = fs.readFileSync(outFile, 'utf8');

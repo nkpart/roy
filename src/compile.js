@@ -204,12 +204,12 @@ var compileNodeWithEnv = function(n, env, opts) {
             return serialize(n.value);
         },
         visitReturn: function() {
-            return "__monad__.return[" + compileNode(n.value) + "];";
+            return "__monad__[\"return\"][" + compileNode(n.value) + "];";
         },
         visitBind: function() {
             var init = n.rest.slice(0, n.rest.length - 1);
             var last = n.rest[n.rest.length - 1];
-            return "__monad__.bind[" + compileNode(n.value) +
+            return "__monad__[\"bind\"][" + compileNode(n.value) +
                 ", lambda { |" + n.name + "| \n" + pushIndent() +
                 _.map(init, compileNode).join(";\n" + getIndent()) + "\n" +
                 getIndent() + "return " + compileNode(last) + "\n" +
@@ -343,8 +343,10 @@ var compileNodeWithEnv = function(n, env, opts) {
         },
         visitPropertyAccess: function() {
             var isConstant = n.property[0].toUpperCase() == n.property[0];
-            var filler = isConstant ? "::" : ".";
-            return compileNode(n.value) + filler + n.property;
+            if (isConstant) {
+              return compileNode(n.value) + "::" + n.property;
+            }
+            return compileNode(n.value) + "[\"" + n.property + "\"]";
         },
         visitAccess: function() {
             return compileNode(n.value) + "[" + compileNode(n.property) + "]";
@@ -364,9 +366,9 @@ var compileNodeWithEnv = function(n, env, opts) {
         visitWith: function() {
             var args = compileNode(n.left) + ', ' + compileNode(n.right);
             var inner = _.map(['__l__', '__r__'], function(name) {
-                return 'for(__n__ in ' + name + ') {\n' + getIndent(2) + '__o__[__n__] = ' + name + '[__n__];\n' + getIndent(1) + '}';
+                return name + ".each do |__n__,__v__|\n" + getIndent(2) + '__o__[__n__] = __v__;\n' + getIndent(1) + 'end';
             });
-            return joinIndent(['(function(__l__, __r__) {', 'var __o__ = {}, __n__;'], 1) + joinIndent(inner, 1) + 'return __o__;\n' + getIndent() + '})(' + args + ')';
+            return joinIndent(['(lambda { |__l__, __r__| ', '__o__ = {}'], 1) + joinIndent(inner, 1) + 'return __o__;\n' + getIndent() + '})[' + args + ']';
         },
         // Print all other nodes directly.
         visitComment: function() {
@@ -404,7 +406,7 @@ var compileNodeWithEnv = function(n, env, opts) {
             for(key in n.values) {
                 pairs.push("\"" + key + "\" => " + compileNode(n.values[key]));
             }
-            return "OpenStruct.new({\n" + getIndent() + pairs.join(",\n" + getIndent()) + "\n" + popIndent() + "})";
+            return "({\n" + getIndent() + pairs.join(",\n" + getIndent()) + "\n" + popIndent() + "})";
         }
     });
 };

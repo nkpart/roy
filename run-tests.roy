@@ -27,9 +27,8 @@ let doTest = λtest command outFile →
 
 royTests.forEach (λt →
   let name = path.join dir t
-  let outFile = (path.join dir (path.basename t '.roy')) ++ '.out'
-  let otherOutFile = (path.join dir (path.basename t '.rb'))
-  doTest t (process.argv ! 0) ++ ' ./roy ' ++ name ++ '&& ruby ' ++ otherOutFile
+  let outFile = (path.join dir (path.basename t '.roy')) ++ '.rb'
+  doTest t ((process.argv ! 0) ++ ' ./roy ' ++ name) outFile
 )
 
 jsTests.forEach (λt →

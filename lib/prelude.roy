@@ -1,6 +1,4 @@
-eval "require 'ostruct'"
-
-eval "def console; OpenStruct.new(log: lambda { |*x| puts x.join(' ') }); end"
+eval "def console; {\"log\" => lambda { |*x| puts x.join(' ') }}; end"
 
 let id a = a
 let flip f a b = f b a
