@@ -94,6 +94,8 @@ var compileNodeWithEnv = function(n, env, opts) {
             var compiledNodeBody = _.map(split.body, compileNode);
             var init = [];
             if(compiledWhereDecls.length > 0) {
+                var forwards = _.filter(n.whereDecls, function(v) { return v.name[0].toUpperCase() != v.name[0]; });
+                init.push(_.map(forwards, function(v) { return v.name +  " = " + v.name; }).join(';'));
                 init.push(compiledWhereDecls.join(';\n' + getIndent()) + ';');
             }
             if(compiledNodeBody.length > 1) {
@@ -102,16 +104,18 @@ var compileNodeWithEnv = function(n, env, opts) {
             var lastString = compiledNodeBody[compiledNodeBody.length - 1];
             var varEquals = "";
             if(n.name) {
-                varEquals = "var " + n.name + " = ";
+                varEquals = "" + n.name + " = lambda do |" + getArgs(n.args) + "|\n";
+            } else {
+                varEquals = "lambda do |" + getArgs(n.args) + "|\n"
             }
 
             var compiledEndComments = "";
             if(split.comments.length) {
                 compiledEndComments = getIndent() + _.map(split.comments, compileNode).join("\n" + getIndent()) + "\n";
             }
-            return varEquals + "function(" + getArgs(n.args) + ") {\n" +
+            return varEquals + 
                 getIndent() + joinIndent(init) + "return " + lastString +
-                ";\n" + compiledEndComments + popIndent() + "}";
+                ";\n" + compiledEndComments + popIndent() + "end";
         },
         visitIfThenElse: function() {
             var compiledCondition = compileNode(n.condition);
@@ -143,20 +147,20 @@ var compileNodeWithEnv = function(n, env, opts) {
             popIndent();
             popIndent();
 
-            return "(function() {\n" +
-                getIndent(1) + "if(" + compiledCondition + ") {\n" +
-                getIndent(2) + compiledIfTrueInit + "return " + compiledIfTrueLast + ";\n" + compiledIfTrueEndComments +
-                getIndent(1) + "} else {\n" +
-                getIndent(2) + compiledIfFalseInit + "return " + compiledIfFalseLast + ";\n" + compiledIfFalseEndComments +
-                getIndent(1) + "}\n" +
-                getIndent() + "})()";
+            return "" +
+                getIndent(1) + "(if (" + compiledCondition + ") then\n" +
+                getIndent(2) + compiledIfTrueInit + "" + compiledIfTrueLast + ";\n" + compiledIfTrueEndComments +
+                getIndent(1) + "else\n" +
+                getIndent(2) + compiledIfFalseInit + "" + compiledIfFalseLast + ";\n" + compiledIfFalseEndComments +
+                getIndent(1) + "end\n" +
+                getIndent() + ")";
         },
         // Let binding to JavaScript variable.
         visitLet: function() {
-            return "var " + n.name + " = " + compileNode(n.value);
+            return "" + n.name + " = " + compileNode(n.value);
         },
         visitInstance: function() {
-            return "var " + n.name + " = " + compileNode(n.object);
+            return "" + n.name + " = " + compileNode(n.object);
         },
         visitAssignment: function() {
             return compileNode(n.name) + " = " + compileNode(n.value) + ";";
@@ -168,9 +172,9 @@ var compileNodeWithEnv = function(n, env, opts) {
         visitExpression: function() {
             // No need to retain parenthesis for operations of higher
             // precendence in JS
-            if(n.value instanceof nodes.Function || n.value instanceof nodes.Call) {
-                return compileNode(n.value);
-            }
+            // if(n.value instanceof nodes.Function || n.value instanceof nodes.Call) {
+            //     return compileNode(n.value);
+            // }
             return '(' + compileNode(n.value) + ')';
         },
         visitReplacement: function() {
@@ -200,16 +204,16 @@ var compileNodeWithEnv = function(n, env, opts) {
             return serialize(n.value);
         },
         visitReturn: function() {
-            return "__monad__.return(" + compileNode(n.value) + ");";
+            return "__monad__.return[" + compileNode(n.value) + "];";
         },
         visitBind: function() {
             var init = n.rest.slice(0, n.rest.length - 1);
             var last = n.rest[n.rest.length - 1];
-            return "__monad__.bind(" + compileNode(n.value) +
-                ", function(" + n.name + ") {\n" + pushIndent() +
+            return "__monad__.bind[" + compileNode(n.value) +
+                ", lambda { |" + n.name + "| \n" + pushIndent() +
                 _.map(init, compileNode).join(";\n" + getIndent()) + "\n" +
                 getIndent() + "return " + compileNode(last) + "\n" +
-                popIndent() + "});";
+                popIndent() + "}];";
         },
         visitDo: function() {
             var compiledInit = [];
@@ -234,24 +238,23 @@ var compileNodeWithEnv = function(n, env, opts) {
             if(lastBind) {
                 lastBind.rest = n.body.slice(lastBindIndex + 1);
             }
-            return "(function(){\n" + pushIndent() + "var __monad__ = " +
+            return "(lambda {\n" + pushIndent() + "__monad__ = " +
                 compileNode(n.value) + ";\n" + getIndent() +
                 (!firstBind ? 'return ' : '') + compiledInit.join(';\n' + getIndent()) + '\n' + getIndent() +
                 (firstBind ? 'return ' + compileNode(firstBind) : '') + "\n" +
-                popIndent() + "})()";
+                popIndent() + "})[]";
         },
         visitTag: function() {
             var args = _.map(n.vars, function(v, i) {
                 return v.value + "_" + i;
             });
-            var setters = _.map(args, function(v, i) {
-                return "this._" + i + " = " + v;
-            });
-            pushIndent();
-            var constructorString = "if(!(this instanceof " + n.name + ")) {\n" + getIndent(1) + "return new " + n.name + "(" + args.join(", ") + ");\n" + getIndent() + "}";
-            var settersString = (setters.length === 0 ? "" : "\n" + getIndent() + setters.join(";\n" + getIndent()) + ";");
-            popIndent();
-            return "var " + n.name + " = function(" + args.join(", ") + ") {\n" + getIndent(1) + constructorString + settersString + getIndent() + "\n}";
+            var args_down = _.map(args, function(v,i) { return v.toLowerCase() }).join(', ');
+            var cons_thing = "def self.[](" + args_down + "); " + n.name + ".new(" + args_down + "); end";
+            if (args.length  == 0) {
+              return "class " + n.name + "; " + cons_thing + "; end; ";
+            } else {
+              return "class " + n.name + " < Struct.new(" + _.map(args, function(v, i) { return ":_" + i; }).join(", ") + "); " + cons_thing + "; end;";
+            }
         },
         visitMatch: function() {
             var flatMap = function(a, f) {
@@ -271,7 +274,7 @@ var compileNodeWithEnv = function(n, env, opts) {
                                 var accessors = _.map(nextVarPath, function(x) {
                                     return "._" + x;
                                 }).join('');
-                                return ["var " + a.value + " = " + compileNode(n.value) + accessors + ";"];
+                                return ["" + a.value + " = " + compileNode(n.value) + accessors + ";"];
                             },
                             visitPattern: function() {
                                 return getVars(a, nextVarPath);
@@ -301,7 +304,7 @@ var compileNodeWithEnv = function(n, env, opts) {
                 var tagPaths = getTagPaths(c.pattern, []);
                 var compiledValue = compileNode(n.value);
                 var extraConditions = _.map(tagPaths, function(e) {
-                    return ' && ' + compiledValue + '._' + e.path.join('._') + ' instanceof ' + e.tag.value;
+                    return ' && ' + compiledValue + '._' + e.path.join('._') + '.is_a?(' + e.tag.value + ");";
                 }).join('');
 
                 // More specific patterns need to appear first
@@ -313,10 +316,10 @@ var compileNodeWithEnv = function(n, env, opts) {
 
                 return {
                     path: maxPath,
-                    condition: "if(" + compiledValue + " instanceof " + c.pattern.tag.value +
-                        extraConditions + ") {\n" + getIndent(2) +
+                    condition: "if(" + compiledValue + ".is_a?(" + c.pattern.tag.value + ")" + 
+                        extraConditions + ")\n" + getIndent(2) +
                         joinIndent(vars, 2) + "return " + compileNode(c.value) +
-                        ";\n" + getIndent(1) + "}"
+                        ";\n" + getIndent(1) + "end"
                 };
             });
 
@@ -326,17 +329,22 @@ var compileNodeWithEnv = function(n, env, opts) {
                 return e.condition;
             });
 
-            return "(function() {\n" + getIndent(1) + cases.join(" else ") + "\n" + getIndent() + "})()";
+            return "lambda {\n" + getIndent(1) + cases.join(getIndent(1) + "\n") + "\n" + getIndent() + "}.call";
         },
         // Call to JavaScript call.
         visitCall: function() {
+            if (n.func.value == 'eval') {
+              return "eval(" + _.map(n.args, compileNode) + ")";
+            }
             if(n.func.value == 'import') {
                 return importModule(JSON.parse(n.args[0].value), env, opts);
             }
-            return compileNode(n.func) + "(" + _.map(n.args, compileNode).join(", ") + ")";
+            return compileNode(n.func) + "[" + _.map(n.args, compileNode).join(", ") + "]";
         },
         visitPropertyAccess: function() {
-            return compileNode(n.value) + "." + n.property;
+            var isConstant = n.property[0].toUpperCase() == n.property[0];
+            var filler = isConstant ? "::" : ".";
+            return compileNode(n.value) + filler + n.property;
         },
         visitAccess: function() {
             return compileNode(n.value) + "[" + compileNode(n.property) + "]";
@@ -362,7 +370,7 @@ var compileNodeWithEnv = function(n, env, opts) {
         },
         // Print all other nodes directly.
         visitComment: function() {
-            return n.value;
+            return "# " + n.value;
         },
         visitIdentifier: function() {
             var typeClassAccessor = '';
@@ -381,7 +389,7 @@ var compileNodeWithEnv = function(n, env, opts) {
             return n.value;
         },
         visitUnit: function() {
-            return "null";
+            return "nil";
         },
         visitArray: function() {
             return '[' + _.map(n.values, compileNode).join(', ') + ']';
@@ -394,9 +402,9 @@ var compileNodeWithEnv = function(n, env, opts) {
             var pairs = [];
             pushIndent();
             for(key in n.values) {
-                pairs.push("\"" + key + "\": " + compileNode(n.values[key]));
+                pairs.push("\"" + key + "\" => " + compileNode(n.values[key]));
             }
-            return "{\n" + getIndent() + pairs.join(",\n" + getIndent()) + "\n" + popIndent() + "}";
+            return "OpenStruct.new({\n" + getIndent() + pairs.join(",\n" + getIndent()) + "\n" + popIndent() + "})";
         }
     });
 };
@@ -799,7 +807,7 @@ var main = function() {
         }
 
         exported = {};
-        var outputPath = filename.replace(extensions, '.js');
+        var outputPath = filename.replace(extensions, '.rb');
         var SourceMapGenerator = require('source-map').SourceMapGenerator;
         var sourceMap = new SourceMapGenerator({file: path.basename(outputPath)});
 
@@ -815,8 +823,11 @@ var main = function() {
             output = vm.runInNewContext(compiled.output, sandbox, 'eval');
         } else {
             // Write the JavaScript output.
-            fs.writeFile(outputPath, compiled.output + '//@ sourceMappingURL=' + path.basename(outputPath) + '.map\n', 'utf8');
-            fs.writeFile(outputPath + '.map', sourceMap.toString(), 'utf8');
+            var writeSourceMap = false;
+            fs.writeFile(outputPath, "# encoding: utf-8\n" + compiled.output + (!writeSourceMap ? "" : '//@ sourceMappingURL=' + path.basename(outputPath) + '.map\n'), 'utf8');
+            if (writeSourceMap) {
+              fs.writeFile(outputPath + '.map', sourceMap.toString(), 'utf8');
+            }
             writeModule(env, exported, filename.replace(extensions, '.roym'));
         }
     });

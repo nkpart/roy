@@ -13,3 +13,6 @@ bundled-roy.js
 *~
 *.swp
 *.roym
+
+# Ruby branch ignores
+/test/*.rb

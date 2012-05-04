@@ -1,14 +1,18 @@
+eval "require 'ostruct'"
+
+eval "def console; OpenStruct.new(log: lambda { |*x| puts x.join(' ') }); end"
+
 let id a = a
 let flip f a b = f b a
 
-let not a =
+let not_ a =
   if a then
     false
   else
     true
 
 let even a = (a % 2) == 0
-let odd a = not (even a)
+let odd a = not_ (even a)
 
 let succ n = n + 1
 let pred n = n - 1
@@ -17,7 +21,7 @@ let pred n = n - 1
 //let ∘ = compose
 //let elem =
 //let ∈ = elem
-//let ∉ = not ∘ elem
+//let ∉ = not_ ∘ elem
 //let negate n = -n
 
 // List type
